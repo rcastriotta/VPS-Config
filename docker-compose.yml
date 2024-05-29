@@ -1,4 +1,8 @@
 version: "3"
+
+volumes:
+  data:
+  grafana:
 services:
   grafana:
     container_name: monitoring-grafana
@@ -6,14 +10,11 @@ services:
     hostname: rpi-grafana
     restart: unless-stopped
     user: "472"
-    networks:
-      - internal
     ports:
       - "3000:3000"
     env_file:
       - ./grafana/.env
     volumes:
-      # /!\ To be modified depending on your needs /!\
       - ./grafana/data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning
     depends_on:
@@ -21,18 +22,12 @@ services:
 
   cadvisor:
     container_name: monitoring-cadvisor
-    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    image: gcr.io/cadvisor/cadvisor:v0.47.1
     hostname: rpi-cadvisor
     restart: unless-stopped
     privileged: true
-    networks:
-      - internal
     expose:
       - 8080
-    command:
-      - '-housekeeping_interval=15s'
-      - '-docker_only=true'
-      - '-store_container_labels=false'
     devices:
       - /dev/kmsg
     volumes:
@@ -48,8 +43,6 @@ services:
     image: prom/node-exporter:latest
     hostname: rpi-exporter
     restart: unless-stopped
-    networks:
-      - internal
     expose:
       - 9100
     command:
@@ -73,15 +66,9 @@ services:
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
-      - '--storage.tsdb.retention.time=1y'
-      # /!\ Uncomment the following line to set a size limit for the Prometheus database /!\
-#      - '--storage.tsdb.retention.size=10GB'
-    networks:
-      - internal
     expose:
       - 9090
     volumes:
-      # /!\ To be modified depending on your needs /!\
       - ./prometheus/data:/prometheus
       - ./prometheus:/etc/prometheus/
     depends_on:
@@ -91,6 +78,37 @@ services:
       - cadvisor:cadvisor
       - node-exporter:node-exporter
 
-networks:
-  internal:
-    driver: bridge
+  loki:
+    container_name: "logging-loki"
+    image: grafana/loki:latest
+    restart: unless-stopped
+    ports:
+      - "3100:3100"
+      
+  promtail:
+    container_name: "logging-promtail"
+    restart: unless-stopped
+    image: grafana/promtail:latest
+    volumes:
+      - ./promtail/promtail-config.yaml:/etc/promtail/promtail-config.yaml
+    depends_on:
+      - loki
+
+  portainer:
+    image: portainer/portainer-ce:latest
+    ports:
+      - 9443:9443
+    volumes:
+      - data:/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+
+  watchtower:
+    container_name: watchtower
+    restart: unless-stopped
+    image: containrrr/watchtower:latest
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - 8080:8080
+    command: --interval 30
